@@ -1,22 +1,22 @@
-# ML Survival Predictor
+# Estonia Survival Predictor
 
-An **end-to-end machine learning project** to predict passenger survival.  
-This repository includes data preprocessing, model training, and a Streamlit app for interactive survival prediction.
-
+An **end-to-end machine learning project** for predicting passenger survival using the **Estonia dataset**.  
+The repository includes data preprocessing, model training, and a Streamlit app for interactive survival prediction.
 
 ---
 
+
 ## Project Overview
 
-The **ML Survival Predictor** estimates the likelihood of passenger survival using a supervised learning model.  
-The model is trained on historical data and predicts survival based on the following features:
+The **Estonia Survival Predictor** estimates the likelihood of passenger survival using a supervised learning model.  
+It leverages historical data from the **Estonia dataset** and predicts survival based on these features:
 
 - `Age` – Age of passenger  
 - `Sex_encoded` – Encoded gender (Male = 1, Female = 0)  
 - `Category_encoded` – Passenger or Crew (Passenger = 0, Crew = 1)  
 - `Country_encoded` – Encoded nationality  
 
-The project is fully **end-to-end**, including:
+The project is **end-to-end**, including:
 
 1. Preprocessing raw data  
 2. Encoding categorical variables  
@@ -44,5 +44,7 @@ The project is fully **end-to-end**, including:
 1. **Clone the repository:**
 
 ```bash
-git clone https://github.com/your-username/ml-survival-predictor.git
-cd ml-survival-predictor
+git clone https://github.com/your-username/estonia-survival-predictor.git
+cd estonia-survival-predictor
+
+
