@@ -1,6 +1,3 @@
-# app.py — Estonia Passenger Survival Predictor
-# Requirements: streamlit, pandas, numpy, joblib, scikit-learn, os
-
 import os
 import streamlit as st
 import pandas as pd
@@ -12,24 +9,19 @@ st.set_page_config(page_title="Estonia Survival Predictor", page_icon="🛟", la
 # -----------------------------
 # Core configuration
 # -----------------------------
-EXPECTED_FEATURES = ["Age", "Sex_encoded", "Category_encoded", "Country_encoded"]
+ALL_FEATURES = ["Age", "Sex_encoded", "Category_encoded", "Country_encoded"]
 
 FALLBACK_DEFAULTS = {
     "Age": 40.0,
     "Sex_encoded": 1,      # 1 = Male, 0 = Female
     "Category_encoded": 0, # 0 = Passenger, 1 = Crew
-    "Country_encoded": 0   # default/unknown bucket
+    "Country_encoded": 0
 }
 
-SEX_MAP = {
-    "Male": 1, "M": 1, "Man": 1, "Boy": 1,
-    "Female": 0, "F": 0, "Woman": 0, "Girl": 0
-}
+SEX_MAP = {"Male": 1, "M": 1, "Man": 1, "Boy": 1,
+           "Female": 0, "F": 0, "Woman": 0, "Girl": 0}
 
-CATEGORY_MAP = {
-    "Passenger": 0, "P": 0,
-    "Crew": 1, "C": 1
-}
+CATEGORY_MAP = {"Passenger": 0, "P": 0, "Crew": 1, "C": 1}
 
 BUILTIN_COUNTRIES = [
     "Unknown", "Estonia", "Sweden", "Finland", "Latvia", "Lithuania",
@@ -48,19 +40,17 @@ def build_template_csv():
         "Country": ["Sweden", "Estonia"]
     })
 
+def normalize_sex(value):
+    return SEX_MAP.get(str(value).strip().title(), FALLBACK_DEFAULTS["Sex_encoded"])
+
+def normalize_category(value):
+    return CATEGORY_MAP.get(str(value).strip().title(), FALLBACK_DEFAULTS["Category_encoded"])
+
 def encode_country_series(country_series, defaults, meta):
     if meta and "country_map" in meta:
         cmap = meta["country_map"]
         return country_series.map(cmap).fillna(defaults["Country_encoded"]).astype(int)
     return pd.Series([defaults["Country_encoded"]] * len(country_series), index=country_series.index)
-
-def normalize_sex(value):
-    v = str(value).strip().title()
-    return SEX_MAP.get(v, FALLBACK_DEFAULTS["Sex_encoded"])
-
-def normalize_category(value):
-    v = str(value).strip().title()
-    return CATEGORY_MAP.get(v, FALLBACK_DEFAULTS["Category_encoded"])
 
 def safe_float(value, default):
     try:
@@ -68,22 +58,23 @@ def safe_float(value, default):
     except:
         return default
 
-def ensure_features(df, defaults):
-    for col in EXPECTED_FEATURES:
+def ensure_features(df, defaults, selected_features):
+    for col in selected_features:
         if col not in df.columns:
             df[col] = defaults[col]
-    return df[EXPECTED_FEATURES]
+    return df[selected_features]
 
-def encode_upload(df_raw, defaults, meta=None):
+def encode_upload(df_raw, defaults, meta, selected_features):
     df = df_raw.copy()
-    df["Sex_encoded"] = df["Sex"].apply(normalize_sex) if "Sex" in df.columns else defaults["Sex_encoded"]
-    df["Category_encoded"] = df["Category"].apply(normalize_category) if "Category" in df.columns else defaults["Category_encoded"]
-    df["Age"] = df["Age"].apply(lambda x: safe_float(x, defaults["Age"])) if "Age" in df.columns else defaults["Age"]
-    if "Country" in df.columns:
+    if "Sex" in df.columns and "Sex_encoded" in selected_features:
+        df["Sex_encoded"] = df["Sex"].apply(normalize_sex)
+    if "Category" in df.columns and "Category_encoded" in selected_features:
+        df["Category_encoded"] = df["Category"].apply(normalize_category)
+    if "Age" in df.columns and "Age" in selected_features:
+        df["Age"] = df["Age"].apply(lambda x: safe_float(x, defaults["Age"]))
+    if "Country" in df.columns and "Country_encoded" in selected_features:
         df["Country_encoded"] = encode_country_series(df["Country"], defaults, meta)
-    else:
-        df["Country_encoded"] = defaults["Country_encoded"]
-    return ensure_features(df, defaults)
+    return ensure_features(df, defaults, selected_features)
 
 def predict_with_proba(model, X):
     y_pred = model.predict(X)
@@ -101,26 +92,32 @@ def load_model_and_meta():
     model_path = os.path.join(models_dir, "best_model.pkl")
     meta_path = os.path.join(models_dir, "preprocess_meta.pkl")
 
-    st.write("Looking for model at:", model_path)
     if not os.path.exists(model_path):
         st.error(f"❌ Model not found at {model_path}. Please place 'best_model.pkl' inside the 'models/' folder.")
         st.stop()
 
-    # Load model using joblib
     model = joblib.load(model_path)
-
-    # Optional metadata
-    if os.path.exists(meta_path):
-        meta = joblib.load(meta_path)
-    else:
-        meta = None
-
+    meta = joblib.load(meta_path) if os.path.exists(meta_path) else None
     return model, meta
 
 model, meta = load_model_and_meta()
 DEFAULTS = FALLBACK_DEFAULTS.copy()
 if meta and "defaults" in meta:
     DEFAULTS.update(meta["defaults"])
+
+# -----------------------------
+# Sidebar: feature selection
+# -----------------------------
+st.sidebar.header("Select Features to Use")
+selected_features = st.sidebar.multiselect(
+    "Pick the features to include",
+    options=ALL_FEATURES,
+    default=ALL_FEATURES
+)
+
+if not selected_features:
+    st.warning("Please select at least one feature to continue.")
+    st.stop()
 
 # -----------------------------
 # Streamlit UI
@@ -135,65 +132,36 @@ mode = st.radio("Choose input method:", ["Manual entry", "Upload file"], horizon
 # -----------------------------
 if mode == "Manual entry":
     st.subheader("Enter passenger details")
-    st.caption("Uncheck a field to use default values.")
-
+    row_data = {}
     col1, col2 = st.columns(2)
-    with col1:
-        use_age = st.checkbox("Age", value=True)
-        age_val = st.slider("Age (years)", 0, 100, int(DEFAULTS["Age"])) if use_age else DEFAULTS["Age"]
 
-        use_sex = st.checkbox("Sex", value=True)
-        sex_readable = st.selectbox("Sex", ["Male", "Female"]) if use_sex else ("Male" if DEFAULTS["Sex_encoded"] == 1 else "Female")
-        sex_val = normalize_sex(sex_readable)
+    if "Age" in selected_features:
+        row_data["Age"] = col1.slider("Age (years)", 0, 100, int(DEFAULTS["Age"]))
 
-    with col2:
-        use_cat = st.checkbox("Category", value=True)
-        cat_readable = st.selectbox("Category", ["Passenger", "Crew"]) if use_cat else ("Passenger" if DEFAULTS["Category_encoded"] == 0 else "Crew")
-        cat_val = normalize_category(cat_readable)
+    if "Sex_encoded" in selected_features:
+        sex_val = col2.selectbox("Sex", ["Male", "Female"], index=DEFAULTS["Sex_encoded"])
+        row_data["Sex_encoded"] = normalize_sex(sex_val)
 
-        use_country = st.checkbox("Country", value=False)
-        country_choice = "Unknown"
+    if "Category_encoded" in selected_features:
+        cat_val = col2.selectbox("Category", ["Passenger", "Crew"], index=DEFAULTS["Category_encoded"])
+        row_data["Category_encoded"] = normalize_category(cat_val)
+
+    if "Country_encoded" in selected_features:
+        country_choice = st.selectbox("Country", BUILTIN_COUNTRIES)
         manual_country_text = ""
-        if use_country:
-            if meta and "country_map" in meta:
-                country_options = sorted(list(meta["country_map"].keys()))
-                if "Unknown" not in country_options:
-                    country_options = ["Unknown"] + country_options
-                country_options = country_options + ["Other (type manually)"]
-                country_choice = st.selectbox("Select Country", country_options)
-                if country_choice == "Other (type manually)":
-                    manual_country_text = st.text_input("Type country name", value="")
-            else:
-                country_choice = st.selectbox("Select Country", BUILTIN_COUNTRIES)
-                if country_choice == "Other (type manually)":
-                    manual_country_text = st.text_input("Type country name", value="")
-
-    if use_country:
+        if country_choice == "Other (type manually)":
+            manual_country_text = st.text_input("Type country name", value="")
         if meta and "country_map" in meta:
             cmap = meta["country_map"]
-            if country_choice == "Other (type manually)":
-                typed = manual_country_text.strip()
-                if typed:
-                    country_encoded = int(cmap.get(typed, DEFAULTS["Country_encoded"]))
-                    if typed not in cmap:
-                        st.warning("Country not seen during training. Treated as Unknown.")
-                else:
-                    country_encoded = DEFAULTS["Country_encoded"]
+            if country_choice == "Other (type manually)" and manual_country_text.strip():
+                row_data["Country_encoded"] = int(cmap.get(manual_country_text.strip(), DEFAULTS["Country_encoded"]))
             else:
-                country_encoded = int(cmap.get(country_choice, DEFAULTS["Country_encoded"]))
+                row_data["Country_encoded"] = int(cmap.get(country_choice, DEFAULTS["Country_encoded"]))
         else:
-            country_encoded = DEFAULTS["Country_encoded"]
-            st.info("Country selection accepted, but without training-time encodings it won’t affect the prediction.")
-    else:
-        country_encoded = DEFAULTS["Country_encoded"]
+            row_data["Country_encoded"] = DEFAULTS["Country_encoded"]
 
-    row = pd.DataFrame([{
-        "Age": float(age_val),
-        "Sex_encoded": int(sex_val),
-        "Category_encoded": int(cat_val),
-        "Country_encoded": int(country_encoded)
-    }])
-    row = ensure_features(row, DEFAULTS)
+    row = pd.DataFrame([row_data])
+    row = ensure_features(row, DEFAULTS, selected_features)
 
     if st.button("Predict survival"):
         y_pred, proba = predict_with_proba(model, row)
@@ -222,7 +190,7 @@ else:
         st.write("Preview of uploaded data:")
         st.dataframe(df_raw.head())
 
-        X = encode_upload(df_raw, DEFAULTS, meta)
+        X = encode_upload(df_raw, DEFAULTS, meta, selected_features)
         y_pred, proba = predict_with_proba(model, X)
 
         out = df_raw.copy()
@@ -239,11 +207,10 @@ else:
 # -----------------------------
 # Help section
 # -----------------------------
-with st.expander("ℹ️ How this app handles Country and missing fields"):
+with st.expander("ℹ️ How this app works"):
     st.markdown("""
-- Country dropdown is shown even if training metadata is missing. You can also type a custom country.
-- If training-time country encodings (`preprocess_meta.pkl`) are available, the app uses them.
-- If not available, Country is treated as Unknown internally to avoid mismatch with the trained model.
-- You can enter data manually or upload a file; skipped fields use sensible defaults.
-- Ensure `best_model.pkl` and `preprocess_meta.pkl` are in the `models/` folder at the same level as `apps/`.
+- You can enter data manually or upload a file for bulk predictions.
+- Missing fields are filled with smart defaults based on training data.
+- Sidebar allows you to dynamically select which features to include.
+- Ensure `best_model.pkl` and `preprocess_meta.pkl` are in the `models/` folder.
 """)
